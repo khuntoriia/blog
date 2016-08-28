@@ -26,7 +26,8 @@ Post.prototype.save = function(callback){
         name : this.name,
         time :time,
         title:this.title,
-        post:this.post
+        post:this.post,
+        comments:[]
     };
 //    打开数据库
     mongodb.open(function(err,db){
@@ -51,15 +52,16 @@ Post.prototype.save = function(callback){
         })
     })
 };
-//读取一个人的所有文章及其相关信息，或获取所有人文章 不传入参数
-Post.getAll = function(name, callback) {
+
+//一次获取某人的十篇文章 或在所有人文章中一次获取10个 （不传入参数）
+Post.getTen = function(name, page, callback) {
     //打开数据库
     mongodb.open(function (err, db) {
         if (err) {
             return callback(err);
         }
         //读取 posts 集合
-        db.collection('posts', function(err, collection) {
+        db.collection('posts', function (err, collection) {
             if (err) {
                 mongodb.close();
                 return callback(err);
@@ -68,23 +70,30 @@ Post.getAll = function(name, callback) {
             if (name) {
                 query.name = name;
             }
-            //根据 query 对象查询文章 time降序
-            collection.find(query).sort({
-                time: -1
-            }).toArray(function (err, docs) {
-                mongodb.close();
-                if (err) {
-                    return callback(err);//失败！返回 err
-                }
-                //解析markdown为html
-                docs.forEach(function(doc){
-                    doc.post = markdown.toHTML(doc.post);
+            //使用 count 返回特定查询的文档数 total
+            collection.count(query, function (err, total) {
+                //根据 query 对象查询，并跳过前 (page-1)*10 个结果，返回之后的 10 个结果
+                collection.find(query, {
+                    skip: (page - 1)*10,
+                    limit: 10
+                }).sort({
+                    time: -1
+                }).toArray(function (err, docs) {
+                    mongodb.close();
+                    if (err) {
+                        return callback(err);
+                    }
+                    //解析 markdown 为 html
+                    docs.forEach(function (doc) {
+                        doc.post = markdown.toHTML(doc.post);
+                    });
+                    callback(null, docs, total);
                 });
-                callback(null, docs);//成功！以数组形式返回查询的结果
             });
         });
     });
 };
+
 //获取一篇文章
 Post.getOne = function(name, day, title, callback) {
     //打开数据库
@@ -110,6 +119,12 @@ Post.getOne = function(name, day, title, callback) {
                 }
                 //解析 markdown 为 html
                 doc.post = markdown.toHTML(doc.post);
+                //添加comments判断，否则没有评论时，forEach会报错
+                if(doc.post.comments && doc.post.comments.length>0){
+                    doc.post.comments.forEach(function (comment) {
+                        comment.content = markdown.toHTML(comment.content);
+                    });
+                }
                 callback(null, doc);//返回查询的一篇文章
             });
         });

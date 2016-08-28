@@ -4,6 +4,7 @@ var crypto = require("crypto");
 var multer = require("multer");
 var User = require("../modules/user.js");
 var Post = require("../modules/post.js");
+var Comment = require('../modules/comment.js');;
 
 //上传图片
 var storage = multer.diskStorage({
@@ -36,14 +37,20 @@ function checkNotLogin(req,res,next){
 
 /* GET home page. */
 router.get('/', function(req, res, next) {
-    Post.getAll(null, function (err, posts) {
+    //判断是否是第一页，并把请求的页数转换成 number 类型
+    var page = parseInt(req.query.p) || 1;
+    //查询并返回第 page 页的 10 篇文章
+    Post.getTen(null, page, function (err, posts, total) {
         if (err) {
             posts = [];
         }
         res.render('index', {
             title: '主页',
-            user: req.session.user,
             posts: posts,
+            page: page,
+            isFirstPage: (page - 1) == 0,
+            isLastPage: ((page - 1) * 10 + posts.length) == total,
+            user: req.session.user,
             success: req.flash('success').toString(),
             error: req.flash('error').toString()
         });
@@ -117,7 +124,7 @@ router.post('/login', function(req, res, next) {
     //检查用户是否存在
     User.get(req.body.name, function (err, user) {
         if (!user) {
-            req.flash('error', '用户不存在!');
+            req.flash('error', req.body.password);
             return res.redirect('/login');//用户不存在则跳转到登录页
         }
         //检查密码是否一致
@@ -180,24 +187,28 @@ router.post('/upload', upload.array('field1', 5), function (req, res) {
 
 router.get('/u/:name', checkLogin);
 router.get('/u/:name',function(req,res){
+    var page = parseInt(req.query.p) || 1;
 //    检查用户是否存在
     User.get(req.params.name,function(err,user){
         if (!user){
             req.flash('error','用户不存在');
             return res.redirect('/');
         }
-    //    查询并返回改用户的所有文章
-        Post.getAll(user.name,function(err,posts){
-            if (err){
-                req.flash('error',err);
+        //查询并返回该用户第 page 页的 10 篇文章
+        Post.getTen(user.name, page, function (err, posts, total) {
+            if (err) {
+                req.flash('error', err);
                 return res.redirect('/');
             }
-            res.render("user",{
-                title:user.name,
+            res.render('user', {
+                title: user.name,
+                posts: posts,
+                page: page,
+                isFirstPage: (page - 1) == 0,
+                isLastPage: ((page - 1) * 10 + posts.length) == total,
                 user: req.session.user,
-                posts:posts,
-                success:req.flash('success').toString(),
-                error:req.flash('error').toString()
+                success: req.flash('success').toString(),
+                error: req.flash('error').toString()
             });
         });
     });
@@ -217,6 +228,29 @@ router.get('/u/:name/:day/:title', function (req, res) {
             success: req.flash('success').toString(),
             error: req.flash('error').toString()
         });
+    });
+});
+
+router.post('/u/:name/:day/:title', checkLogin);
+router.post('/u/:name/:day/:title', function (req, res) {
+    var date = new Date(),
+        time = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate() + " " +
+            date.getHours() + ":" + (date.getMinutes() < 10 ? '0' + date.getMinutes() : date.getMinutes());
+    var comment = {
+        name: req.body.name,
+        email: req.body.email,
+        website: req.body.website,
+        time: time,
+        content: req.body.content
+    };
+    var newComment = new Comment(req.params.name, req.params.day, req.params.title, comment);
+    newComment.save(function (err) {
+        if (err) {
+            req.flash('error', err);
+            return res.redirect('back');
+        }
+        req.flash('success', '留言成功!');
+        res.redirect('back');
     });
 });
 
